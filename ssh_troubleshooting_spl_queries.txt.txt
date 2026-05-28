@@ -1,0 +1,140 @@
+###############################################################################
+# Project: Troubleshooting SSH Service Failure Using Linux Logs and Splunk
+# File: ssh_troubleshooting_spl_queries.spl
+# Purpose: SPL queries used to verify whether Ubuntu SSH authentication logs
+# were being received by Splunk after troubleshooting the forwarding issue.
+###############################################################################
+
+
+###############################################################################
+# Query 1: Check all available hosts, sources, and sourcetypes
+# Purpose:
+# This query was used to confirm what data was already available in Splunk.
+# It helped identify that /var/log/auth.log and /var/log/syslog were already
+# indexed, and that authentication logs existed under auth and auth-too_small.
+###############################################################################
+
+index=*
+| stats count by host source sourcetype
+| sort host source sourcetype
+
+
+###############################################################################
+# Query 2: Check authentication log count for lifa-servers
+# Purpose:
+# This query was used to focus only on the Ubuntu server authentication log.
+# It helped check whether new SSH logs were entering Splunk under the correct
+# source and sourcetype.
+###############################################################################
+
+index=* host=lifa-servers source="/var/log/auth.log"
+| stats count by host source sourcetype
+| sort - count
+
+
+###############################################################################
+# Query 3: Check recent authentication logs after generating SSH activity
+# Purpose:
+# This query was used after new SSH login attempts were generated.
+# The Splunk time range was set to "Last 15 minutes" to confirm whether new
+# logs were being forwarded into Splunk.
+###############################################################################
+
+index=* host=lifa-servers source="/var/log/auth.log"
+| table _time host source sourcetype _raw
+| sort - _time
+
+
+###############################################################################
+# Query 4: View SSH-related authentication logs
+# Purpose:
+# This query filters the authentication logs to show only SSH-related events.
+# It was used to confirm that SSH logs from sshd were being received in Splunk.
+###############################################################################
+
+index=* host=lifa-servers source="/var/log/auth.log" sourcetype=auth sshd
+| table _time host source sourcetype _raw
+| sort - _time
+
+
+###############################################################################
+# Query 5: Search failed and successful SSH login events
+# Purpose:
+# This query searches for failed SSH logins, successful SSH logins, and invalid
+# user attempts. It helps confirm that important SSH authentication events are
+# searchable in Splunk after forwarding was restored.
+###############################################################################
+
+index=* host=lifa-servers source="/var/log/auth.log" sourcetype=auth ("Failed password" OR "Accepted password" OR "Invalid user")
+| rex field=_raw "from (?<src_ip>\d+\.\d+\.\d+\.\d+)"
+| table _time host src_ip sourcetype _raw
+| sort - _time
+
+
+###############################################################################
+# Query 6: Summarize SSH authentication activity by source IP
+# Purpose:
+# This query summarizes SSH authentication events by source IP address.
+# It helps identify which client machine generated the SSH authentication events.
+###############################################################################
+
+index=* host=lifa-servers source="/var/log/auth.log" sourcetype=auth ("Failed password" OR "Accepted password" OR "Invalid user")
+| rex field=_raw "from (?<src_ip>\d+\.\d+\.\d+\.\d+)"
+| stats count as total_events by src_ip
+| sort - total_events
+
+
+###############################################################################
+# Query 7: Count failed SSH login attempts by source IP
+# Purpose:
+# This query counts failed SSH password attempts by source IP.
+# It can help identify repeated failed login attempts during troubleshooting.
+###############################################################################
+
+index=* host=lifa-servers source="/var/log/auth.log" sourcetype=auth "Failed password"
+| rex field=_raw "from (?<src_ip>\d+\.\d+\.\d+\.\d+)"
+| stats count as failed_attempts by src_ip
+| sort - failed_attempts
+
+
+###############################################################################
+# Query 8: Count successful SSH logins by source IP
+# Purpose:
+# This query counts successful SSH login events by source IP.
+# It was used to confirm that successful SSH login activity was received in Splunk.
+###############################################################################
+
+index=* host=lifa-servers source="/var/log/auth.log" sourcetype=auth "Accepted password"
+| rex field=_raw "from (?<src_ip>\d+\.\d+\.\d+\.\d+)"
+| stats count as successful_logins by src_ip
+| sort - successful_logins
+
+
+###############################################################################
+# Query 9: Compare SSH authentication event types
+# Purpose:
+# This query labels SSH authentication events as failed login, successful login,
+# or invalid user attempt. It helps organize the authentication events clearly.
+###############################################################################
+
+index=* host=lifa-servers source="/var/log/auth.log" sourcetype=auth ("Failed password" OR "Accepted password" OR "Invalid user")
+| eval event_type=case(
+    searchmatch("Accepted password"), "Successful SSH login",
+    searchmatch("Failed password"), "Failed SSH login",
+    searchmatch("Invalid user"), "Invalid user attempt"
+)
+| rex field=_raw "from (?<src_ip>\d+\.\d+\.\d+\.\d+)"
+| table _time host src_ip event_type _raw
+| sort - _time
+
+
+###############################################################################
+# Query 10: Final proof that logs are entering under sourcetype auth
+# Purpose:
+# This query confirms that new SSH authentication logs are entering Splunk under
+# source /var/log/auth.log and sourcetype auth after the forward-server was fixed.
+###############################################################################
+
+index=* host=lifa-servers source="/var/log/auth.log" sourcetype=auth
+| stats count by host source sourcetype
+| sort - count

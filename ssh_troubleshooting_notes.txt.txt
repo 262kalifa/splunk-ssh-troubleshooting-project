@@ -1,0 +1,163 @@
+Project: Troubleshooting SSH Service Failure Using Linux Logs and Splunk
+
+Initial problem:
+SSH was not working after resetting the lab logs.
+
+Investigation plan:
+1. Check whether SSH service is running.
+2. Check whether OpenSSH server is installed.
+3. Check Ubuntu IP address.
+4. Check whether SSH is listening on port 22.
+5. Test SSH connection from another machine.
+6. Review /var/log/auth.log for authentication or connection errors.ssssssss
+7. Search the logs in Splunk after new SSH events are generated.
+
+
+Step 1: Checked SSH service status using sudo systemctl status ssh.
+
+Result:
+The SSH service was active and running. The server was listening on port 22, which means OpenSSH server was working on the Ubuntu server.
+
+Initial interpretation:
+The SSH issue was not caused by the SSH service being stopped. 
+Further troubleshooting is needed to check network 
+connectivity, IP address, firewall, and login credentials.
+
+
+The SSH client on Kali was unable to reach the Ubuntu server at 10.212.86.101. 
+The error “Network is unreachable” suggests that the issue is not caused by SSH authentication failure,
+ but by a network routing or VM network configuration problem.
+
+
+
+ Step 3: Server shutdown and network adapter review
+After confirming that the SSH service was active and listening on port 22, an SSH connection was attempted from Kali to the Ubuntu server.
+The connection failed with the error “Network is unreachable.”
+
+This indicated that the issue was likely related to network connectivity rather than the SSH service itself. 
+The Ubuntu Server VM was shut down so that the VirtualBox network adapter settings could be reviewed safely.
+
+The network adapter setting showed that the VM was attached to a Host-only Adapter. 
+This finding was important because both Kali and Ubuntu must be connected to the same virtual network in order to communicate with each other.
+
+
+Step 4: Live observation of SSH authentication logs
+The command sudo tail -f /var/log/auth.log was used to monitor SSH authentication logs in real time on the Ubuntu server.
+During testing from Kali, the logs captured invalid user attempts for "admin", repeated failed password attempts, and a successful SSH login for user "kalafi". 
+This confirmed that the authentication log was actively recording SSH events and could be used for both Linux-side troubleshooting and Splunk-based analysis.
+
+
+Step 5: Splunk forwarding issue observed
+After resolving the SSH connectivity issue and generating new SSH authentication logs, the command sudo tail -f /var/log/auth.log confirmed that new SSH events were being written locally on the Ubuntu server.
+However, when the Splunk search index=* | stats count by host source sourcetype was run again, the event counts did not increase. This showed that the new logs were not being received by Splunk.
+
+Interpretation:
+The issue was no longer related to SSH itself. The next investigation step was to check the Splunk Universal Forwarder status, the configured forward-server, network connectivity to the Splunk Enterprise receiver, and port 9997.
+
+Step 6: Splunk Universal Forwarder investigation
+
+The Splunk Universal Forwarder was checked using the command:
+
+sudo /home/kalafi/splunkforwarder/bin/splunk status
+
+Result:
+The Splunk Universal Forwarder was running. The output showed that splunkd and Splunk helper processes were active.
+
+Interpretation:
+This confirmed that the forwarding issue was not caused by the Splunk Universal Forwarder service being stopped.
+
+
+Step 7: Forward-server status check
+
+The configured forward-server was checked using the command:
+
+sudo /home/kalafi/splunkforwarder/bin/splunk list forward-server
+
+Result:
+The output showed:
+
+Active forwards:
+None
+
+Configured but inactive forwards:
+10.225.156.46:9997
+
+Interpretation:
+This showed that the Splunk Universal Forwarder was running but not actively connected to Splunk Enterprise. The forwarder was still configured to send logs to the old receiver IP address, 10.225.156.46:9997.
+
+
+Step 8: Identified the correct Windows/Splunk receiver IP address
+
+The Windows host IP address was checked using the command:
+
+ipconfig
+
+Result:
+The Windows Host-only network IP address was identified as:
+
+192.168.56.1
+
+Interpretation:
+Because the Ubuntu server was now using the 192.168.56.x Host-only network, the correct Splunk receiver address was 192.168.56.1:9997, not the old 10.225.156.46:9997 address.
+
+
+Step 9: Updated the Splunk forward-server configuration
+
+The old inactive forward-server was removed using:
+
+sudo /home/kalafi/splunkforwarder/bin/splunk remove forward-server 10.225.156.46:9997
+
+The correct Splunk receiver address was added using:
+
+sudo /home/kalafi/splunkforwarder/bin/splunk add forward-server 192.168.56.1:9997
+
+The Splunk Universal Forwarder was restarted using:
+
+sudo /home/kalafi/splunkforwarder/bin/splunk restart
+
+Result:
+After restarting the forwarder, the forward-server list showed:
+
+Active forwards:
+192.168.56.1:9997
+
+Interpretation:
+This confirmed that the Splunk Universal Forwarder was successfully reconnected to Splunk Enterprise.
+
+
+Step 10: Tested network connectivity to Splunk receiving port
+
+The connection to Splunk Enterprise on port 9997 was tested using:
+
+nc -vz 192.168.56.1 9997
+
+Result:
+The connection succeeded.
+
+Interpretation:
+This confirmed that the Ubuntu server could reach the Splunk Enterprise receiver on port 9997.
+
+
+Step 11: Confirmed new SSH logs were received in Splunk
+
+After generating new SSH activity, the following Splunk query was used:
+
+index=* host=lifa-servers source="/var/log/auth.log"
+| stats count by host source sourcetype
+
+Result:
+The event count increased under:
+
+host=lifa-servers
+source=/var/log/auth.log
+sourcetype=auth
+
+Interpretation:
+This confirmed that new SSH authentication logs were successfully forwarded from Ubuntu to Splunk after the forward-server configuration was corrected.
+
+
+Final conclusion:
+The original SSH issue was first linked to network connectivity, as shown by the “Network is unreachable” error. 
+After the network issue was resolved, SSH authentication logs were generated locally on Ubuntu. 
+However, Splunk did not initially receive the new logs because the Splunk Universal Forwarder was configured with an old inactive receiver IP address. 
+The issue was fixed by identifying the correct Windows Host-only IP address, updating the forward-server to 192.168.56.1:9997, restarting the forwarder, and confirming that new logs were received in Splunk under sourcetype auth.
