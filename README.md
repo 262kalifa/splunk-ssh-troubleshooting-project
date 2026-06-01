@@ -9,9 +9,7 @@ This project documents the troubleshooting of SSH connectivity and Splunk log fo
 The lab involved an Ubuntu Server VM, Kali Linux, a Windows host machine, Splunk Enterprise, and Splunk Universal Forwarder. The goal was to investigate why SSH was not working properly and why newly generated SSH authentication logs were not appearing in Splunk.
 
 ## Project Objective
-
 The objective of this project was to:
-
 - Troubleshoot SSH connectivity issues between Kali Linux and Ubuntu Server.
 - Verify that the SSH service was running on Ubuntu.
 - Monitor live SSH authentication logs using Linux commands.
