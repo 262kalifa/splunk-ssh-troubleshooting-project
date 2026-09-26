@@ -234,11 +234,13 @@ A service can be healthy while the network path is broken, and a forwarder can b
 
 A detailed report is included in the repository:
 
-- [Splunk SSH Troubleshooting Project Report](./Splunk_SSH_Troubleshooting_Project_Report.pdf)
+- [Splunk SSH Troubleshooting Project Report](./reports/Splunk_SSH_Troubleshooting_Project_Report.pdf)
 
 ## Evidence
 
-The repository includes screenshots documenting the troubleshooting process, including:
+The repository organizes supporting evidence under `screenshots/`, SPL references under `splunk_queries/`, notes under `notes/`, and the full report under `reports/`.
+
+The screenshots document:
 
 - SSH service state
 - network reachability failure
