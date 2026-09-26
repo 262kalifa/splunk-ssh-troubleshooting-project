@@ -1,230 +1,255 @@
-# -splunk-ssh-troubleshooting-project
-Description: A beginner SOC project focused on troubleshooting SSH connectivity and Splunk Universal Forwarder log forwarding issues using Linux logs and Splunk.
-# Troubleshooting SSH Service Failure Using Linux Logs and Splunk
+# Splunk SSH Troubleshooting & Log Forwarding Investigation
 
-## Project Overview
+## Overview
 
-This project documents the troubleshooting of SSH connectivity and Splunk log forwarding issues in a local cybersecurity lab environment.
+This project documents a hands-on troubleshooting investigation involving SSH connectivity, Linux authentication logging, and Splunk Universal Forwarder communication in a local cybersecurity lab.
 
-The lab involved an Ubuntu Server VM, Kali Linux, a Windows host machine, Splunk Enterprise, and Splunk Universal Forwarder. The goal was to investigate why SSH was not working properly and why newly generated SSH authentication logs were not appearing in Splunk.
+The investigation began with an SSH connectivity failure between Kali Linux and an Ubuntu Server. After restoring network communication, a second issue was identified: new authentication events were being generated locally on Ubuntu but were not reaching Splunk Enterprise.
 
-## Project Objective
-The objective of this project was to:
-- Troubleshoot SSH connectivity issues between Kali Linux and Ubuntu Server.
-- Verify that the SSH service was running on Ubuntu.
-- Monitor live SSH authentication logs using Linux commands.
-- Investigate why new SSH logs were not appearing in Splunk.
-- Check the Splunk Universal Forwarder status.
-- Identify and fix an inactive Splunk forward-server configuration.
-- Confirm that new SSH logs were successfully forwarded to Splunk.
+The project demonstrates a structured troubleshooting process across the network, service, log, and SIEM layers rather than assuming a single root cause.
+
+## Objectives
+
+- Troubleshoot SSH connectivity between Kali Linux and Ubuntu Server.
+- Verify that the SSH service and authentication logging were functioning correctly.
+- Confirm that new authentication events were being written to `/var/log/auth.log`.
+- Investigate why new events were not appearing in Splunk.
+- Validate Splunk Universal Forwarder status and receiver connectivity.
+- Correct the forwarding configuration and verify successful log ingestion.
+- Document the investigation with commands, SPL queries, screenshots, and a technical report.
 
 ## Lab Environment
 
-- Ubuntu Server VM
-- Kali Linux VM
-- Windows host machine
-- VirtualBox
-- Splunk Enterprise installed on Windows
-- Splunk Universal Forwarder installed on Ubuntu Server
+| Component | Role |
+|---|---|
+| Ubuntu Server | SSH server and Splunk Universal Forwarder host |
+| Kali Linux | Authorized SSH testing system |
+| Windows host | Splunk Enterprise receiver |
+| Oracle VirtualBox | Virtualization platform |
+| Splunk Enterprise | Centralized log search and analysis |
+| Splunk Universal Forwarder | Forwards Ubuntu authentication logs to Splunk |
 
-## Tools Used
-
-- Linux terminal
-- SSH
-- `systemctl`
-- `tail`
-- `ipconfig`
-- `nc`
-- Splunk Universal Forwarder
-- Splunk Enterprise
-- Splunk Search Processing Language
+The virtual systems communicated over a VirtualBox host-only network.
 
 ## Data Source
 
-The main log source used in this project was:
+The primary log source was:
 
 ```text
 /var/log/auth.log
+```
 
-This log file contains Linux authentication events, including SSH login attempts, failed password attempts, invalid user attempts, successful logins, and session activity.
+This log contains Linux authentication activity such as SSH login attempts, invalid users, failed passwords, successful authentication, and session events.
 
-Troubleshooting Process
-1. SSH Service Status Check
+## Investigation Workflow
 
-The SSH service was checked using:
+### 1. Verify the SSH service
 
+The SSH service was checked first:
+
+```bash
 sudo systemctl status ssh
+```
 
-The result showed that the SSH service was active and running. The server was also listening on port 22. This confirmed that the SSH problem was not caused by the SSH service being stopped.
+The service was active and listening on port 22. This ruled out a stopped SSH service as the immediate cause of the connection failure.
 
-2. SSH Connection Failure
+### 2. Investigate the SSH connectivity failure
 
-An SSH connection attempt from Kali to the Ubuntu server returned:
+An SSH attempt from Kali returned:
 
+```text
 Network is unreachable
+```
 
-This indicated that the issue was related to network connectivity or routing rather than SSH authentication.
+This pointed the investigation toward network configuration rather than authentication.
 
-3. Network Adapter Review
+The VirtualBox adapter configuration was reviewed and corrected so the lab systems could communicate over the host-only network.
 
-The Ubuntu Server VM was shut down so that the VirtualBox network adapter settings could be reviewed. The VM was configured to use a Host-only Adapter.
+### 3. Verify local authentication telemetry
 
-This was important because Kali, Ubuntu, and the Windows host needed to communicate on the same virtual network.
+After restoring connectivity, Ubuntu authentication activity was monitored in real time:
 
-4. Live Authentication Log Monitoring
-
-After SSH connectivity was restored, live SSH authentication logs were monitored using:
-
+```bash
 sudo tail -f /var/log/auth.log
+```
 
-The logs showed failed login attempts for an invalid user, repeated password failures, and a successful SSH login for user kalafi.
+The server recorded failed login attempts, invalid-user activity, password failures, and a successful SSH login. This confirmed that Ubuntu was generating the expected local telemetry.
 
-This confirmed that Ubuntu was generating SSH authentication logs locally.
+### 4. Compare local log generation with Splunk ingestion
 
-5. Splunk Log Count Issue
+A Splunk event-count search was used to check whether new activity was arriving:
 
-After generating new SSH activity, the following Splunk query was used:
-
+```spl
 index=*
 | stats count by host source sourcetype
+```
 
-The result showed that the event counts did not increase after new logs were created. This indicated that Ubuntu was generating logs locally, but Splunk was not receiving the newly created authentication events.
+The local authentication log continued to change, but the Splunk event count did not increase. This narrowed the issue to the forwarding path rather than SSH itself.
 
-6. Splunk Universal Forwarder Status Check
+### 5. Verify the Splunk Universal Forwarder
 
-The Splunk Universal Forwarder was checked using:
+The forwarder service was checked:
 
+```bash
 sudo /home/kalafi/splunkforwarder/bin/splunk status
+```
 
-The result showed that the forwarder was running. This confirmed that the problem was not caused by the forwarder service being stopped.
+The forwarder was running.
 
-7. Forward-Server Status Check
+The configured receiver was then inspected:
 
-The configured forward-server was checked using:
-
+```bash
 sudo /home/kalafi/splunkforwarder/bin/splunk list forward-server
+```
 
-The result showed:
+The result showed no active forward and an outdated receiver configuration:
 
+```text
 Active forwards:
 None
 
 Configured but inactive forwards:
 10.225.156.46:9997
+```
 
-This showed that the Splunk Universal Forwarder was running but not actively connected to Splunk Enterprise. The forwarder was still configured to send logs to an old receiver IP address.
+This established that the forwarder process itself was healthy, but it was not connected to the correct Splunk receiver.
 
-8. Correct Splunk Receiver IP Identified
+### 6. Correct the receiver configuration
 
-The Windows host IP address was checked using:
+The Windows host-only address was identified as:
 
-ipconfig
-
-The correct Windows Host-only IP address was identified as:
-
+```text
 192.168.56.1
+```
 
-Because the Ubuntu server was using the 192.168.56.x Host-only network, the correct Splunk receiver address was:
+The old receiver was removed and the correct receiver was configured:
 
-192.168.56.1:9997
-9. Forward-Server Configuration Fixed
-
-The old inactive forward-server was removed using:
-
+```bash
 sudo /home/kalafi/splunkforwarder/bin/splunk remove forward-server 10.225.156.46:9997
-
-The correct Splunk receiver address was added using:
-
 sudo /home/kalafi/splunkforwarder/bin/splunk add forward-server 192.168.56.1:9997
-
-The Splunk Universal Forwarder was restarted using:
-
 sudo /home/kalafi/splunkforwarder/bin/splunk restart
+```
 
-After restarting, the forward-server list showed an active forward to:
+The forward-server status then showed an active connection to:
 
+```text
 192.168.56.1:9997
-10. Port 9997 Connectivity Test
+```
 
-Connectivity to the Splunk receiving port was tested using:
+### 7. Validate receiver-port connectivity
 
+Connectivity to the Splunk receiving port was tested from Ubuntu:
+
+```bash
 nc -vz 192.168.56.1 9997
+```
 
-The connection succeeded. This confirmed that Ubuntu could reach Splunk Enterprise on port 9997.
+The connection succeeded, confirming that Ubuntu could reach the Splunk receiver on TCP port 9997.
 
-11. New Logs Confirmed in Splunk
+### 8. Verify successful ingestion
 
-After generating new SSH activity, the following Splunk query was used:
+New SSH activity was generated and Splunk was queried again:
 
+```spl
 index=* host=lifa-servers source="/var/log/auth.log"
 | stats count by host source sourcetype
+```
 
-The event count increased under:
+The event count increased for:
 
+```text
 host=lifa-servers
 source=/var/log/auth.log
 sourcetype=auth
+```
 
-This confirmed that new SSH authentication logs were successfully forwarded from Ubuntu to Splunk after the forward-server configuration was corrected.
+This verified that new Ubuntu authentication events were successfully reaching Splunk after the forwarding configuration was corrected.
 
-Key SPL Queries
-Check Hosts, Sources, and Sourcetypes
+## Useful SPL Queries
+
+### Review indexed hosts, sources, and sourcetypes
+
+```spl
 index=*
 | stats count by host source sourcetype
 | sort host source sourcetype
-Check Authentication Logs from Ubuntu
+```
 
+### Review Ubuntu authentication events
+
+```spl
 index=* host=lifa-servers source="/var/log/auth.log"
 | stats count by host source sourcetype
 | sort - count
-View SSH-Related Authentication Logs
+```
 
+### View SSH-related authentication logs
+
+```spl
 index=* host=lifa-servers source="/var/log/auth.log" sourcetype=auth sshd
 | table _time host source sourcetype _raw
 | sort - _time
-Search Failed and Successful SSH Login Events
+```
 
+### Extract source IPs from SSH authentication events
+
+```spl
 index=* host=lifa-servers source="/var/log/auth.log" sourcetype=auth ("Failed password" OR "Accepted password" OR "Invalid user")
-| rex field=_raw "from (?<src_ip>\d+\.\d+\.\d+\.\d+)"
+| rex field=_raw "from (?<src_ip>\\d+\\.\\d+\\.\\d+\\.\\d+)"
 | table _time host src_ip sourcetype _raw
 | sort - _time
+```
 
-Screenshots
-The Images folder contains screenshots showing:
+## Key Findings
 
-SSH service status
-SSH network unreachable error
-VM network adapter setting
-Live SSH authentication logs
-Splunk log count before the fix
-Splunk Universal Forwarder status
-Inactive forward-server configuration
-Windows Host-only IP address
-Updated active forward-server
-Successful port 9997 connectivity test
-Splunk log count after the fix
-Main Findings
+- The SSH service was healthy; the initial connection problem was caused by network reachability.
+- Ubuntu continued to generate authentication events locally after SSH connectivity was restored.
+- The Splunk Universal Forwarder process was running, but its configured receiver was outdated and inactive.
+- Correcting the receiver address and restarting the forwarder restored event forwarding.
+- Successful port testing and increased event counts in Splunk provided independent validation that the forwarding path was working.
 
-The project showed that the SSH service itself was running correctly. The initial SSH issue was related to network connectivity.
+## Skills Demonstrated
 
-After SSH activity was restored, a second issue was identified: Splunk was not receiving new authentication logs. The Splunk Universal Forwarder was running, but it was still configured with an old inactive Splunk receiver IP address.
+- Linux service troubleshooting
+- SSH connectivity investigation
+- Linux authentication log analysis
+- Real-time log monitoring
+- Splunk Universal Forwarder administration
+- TCP port validation
+- SPL searching and field extraction
+- Layered troubleshooting methodology
+- Evidence-based technical documentation
 
-The issue was fixed by identifying the correct Windows Host-only IP address, updating the forward-server to 192.168.56.1:9997, restarting the Splunk Universal Forwarder, and confirming that new logs were received in Splunk under sourcetype auth.
+## Troubleshooting Approach
 
-Skills Demonstrated
+A major lesson from this project was to validate each layer independently:
 
-This project demonstrates beginner SOC and troubleshooting skills, including:
+```text
+Network → Service → Local Logs → Forwarder → Receiver Port → SIEM Ingestion
+```
 
-Linux service troubleshooting
-SSH connectivity investigation
-Linux authentication log analysis
-Real-time log monitoring
-Splunk Universal Forwarder troubleshooting
-Network port testing
-SPL searching and validation
-Evidence-based documentation
-Conclusion
+A service can be healthy while the network path is broken, and a forwarder can be running while still pointing to the wrong receiver. Testing each layer separately made it possible to isolate both problems without assuming that one failure explained everything.
 
-This project demonstrated how Linux logs and Splunk can be used together to troubleshoot SSH and log forwarding problems.
+## Project Report
 
-The investigation showed that a service can be running locally but still fail because of network or forwarding configuration issues. By checking the SSH service, reviewing live authentication logs, testing network connectivity, and correcting the Splunk forward-server configuration, new SSH authentication logs were successfully forwarded to Splunk.
+A detailed report is included in the repository:
+
+- [Splunk SSH Troubleshooting Project Report](./Splunk_SSH_Troubleshooting_Project_Report.pdf)
+
+## Evidence
+
+The repository includes screenshots documenting the troubleshooting process, including:
+
+- SSH service state
+- network reachability failure
+- VirtualBox adapter configuration
+- live `auth.log` activity
+- Splunk event counts before and after remediation
+- Universal Forwarder status
+- inactive and corrected forward-server configuration
+- TCP 9997 connectivity validation
+- final Splunk verification
+
+## Status
+
+**Completed.** The SSH connectivity and Splunk log-forwarding issues were identified, remediated, and independently validated.
